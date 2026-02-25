@@ -3,42 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualizador Doble Imagen</title>
+    <title>Visualizador Multi-Frecuencia</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
     <style>
-        body { margin: 0; display: flex; flex-direction: column; align-items: center; background: #1a1a1a; color: white; font-family: sans-serif; overflow: hidden; }
-        #controls { padding: 15px; z-index: 10; background: rgba(0,0,0,0.8); width: 100%; display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; align-items: center; }
-        .upload-group { display: flex; flex-direction: column; align-items: center; font-size: 0.8em; }
-        canvas { border: none; }
-        button { cursor: pointer; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 5px; font-weight: bold; }
-        button:hover { background: #2ecc71; }
+        body { margin: 0; background: #000; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        #controls { 
+            position: absolute; top: 0; width: 100%; padding: 15px; 
+            background: rgba(0,0,0,0.7); display: flex; justify-content: center; 
+            gap: 20px; z-index: 100; border-bottom: 1px solid #333;
+        }
+        .upload-btn { background: #444; padding: 8px; border-radius: 4px; cursor: pointer; }
+        button { background: #e74c3c; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #ff5e4d; }
+        .label { font-size: 12px; display: block; margin-bottom: 5px; color: #aaa; }
     </style>
 </head>
 <body>
 
     <div id="controls">
-        <div class="upload-group">
-            <span>1. Imagen de Fondo</span>
+        <div>
+            <span class="label">1. Fondo (Reacciona a Bajos)</span>
             <input type="file" id="bgInput" accept="image/*">
         </div>
-        <div class="upload-group">
-            <span>2. Imagen que Reacciona</span>
+        <div>
+            <span class="label">2. Objeto (Reacciona a Medios/Altos)</span>
             <input type="file" id="fgInput" accept="image/*">
         </div>
-        <button onclick="startAudio()">Activar Micrófono</button>
+        <button onclick="startAudio()">INICIAR ANÁLISIS</button>
     </div>
 
     <script>
-        let imgBg; // Imagen de fondo
-        let imgFg; // Imagen frontal (reacciona)
-        let mic;
-        let canvas;
+        let imgBg, imgFg;
+        let mic, fft;
+        let canDraw = false;
 
         function setup() {
-            canvas = createCanvas(windowWidth, windowHeight - 80);
+            createCanvas(windowWidth, windowHeight);
             
-            // Configurar entradas de archivos
+            // Inicializar FFT para análisis de frecuencias
+            fft = new p5.FFT();
+            
             document.getElementById('bgInput').addEventListener('change', (e) => handleFile(e, 'bg'));
             document.getElementById('fgInput').addEventListener('change', (e) => handleFile(e, 'fg'));
         }
@@ -47,6 +52,8 @@
             userStartAudio();
             mic = new p5.AudioIn();
             mic.start();
+            fft.setInput(mic);
+            canDraw = true;
         }
 
         function handleFile(e, type) {
@@ -55,13 +62,8 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     loadImage(event.target.result, loadedImg => {
-                        if (type === 'bg') {
-                            imgBg = loadedImg;
-                            imgBg.resize(width, 0); // Ajustar fondo al ancho
-                        } else {
-                            imgFg = loadedImg;
-                            imgFg.resize(400, 0); // Tamaño inicial para la imagen que reacciona
-                        }
+                        if (type === 'bg') imgBg = loadedImg;
+                        else imgFg = loadedImg;
                     });
                 };
                 reader.readAsDataURL(file);
@@ -69,77 +71,62 @@
         }
 
         function draw() {
-            background(20);
+            background(0);
 
-            // 1. Dibujar fondo si existe
+            if (!canDraw) {
+                fill(255);
+                textAlign(CENTER);
+                text("Sube las imágenes y presiona 'INICIAR'", width/2, height/2);
+                return;
+            }
+
+            // Analizar el espectro
+            fft.analyze();
+            
+            // Obtener energía de diferentes rangos (0-255)
+            let bass = fft.getEnergy("bass");        // Bajos (20-140Hz)
+            let mid = fft.getEnergy("mid");          // Medios (400-2600Hz)
+            let treble = fft.getEnergy("treble");    // Agudos (5200-14000Hz)
+
+            // 1. Dibujar Fondo (Reacciona a los Bajos con "Shake" y Escala)
             if (imgBg) {
-                imageMode(CORNER);
-                image(imgBg, 0, 0);
+                push();
+                let shake = map(bass, 150, 255, 0, 15); // Solo vibra si el bajo es fuerte
+                let zoomBg = map(bass, 0, 255, 1, 1.05);
+                translate(width / 2 + random(-shake, shake), height / 2 + random(-shake, shake));
+                imageMode(CENTER);
+                scale(zoomBg);
+                // Ajustar imagen al tamaño de pantalla
+                let aspect = imgBg.width / imgBg.height;
+                image(imgBg, 0, 0, width, width / aspect);
+                pop();
             }
 
-            // 2. Dibujar imagen reactiva si existe
-            if (imgFg && mic) {
-                let vol = mic.getLevel(); // Obtener volumen (0 a 1)
-                
-                // Calculamos la escala: base 1.0 + el volumen multiplicado por una intensidad
-                let escala = map(vol, 0, 0.5, 1.0, 2.5); 
-                
+            // 2. Dibujar Imagen Superior (Reacciona a Medios y Agudos)
+            if (imgFg) {
                 push();
                 imageMode(CENTER);
-                translate(width / 2, height / 2); // Centrar en pantalla
+                translate(width / 2, height / 2);
                 
-                // El volumen afecta el tamaño
-                scale(escala); 
+                // Los medios afectan el tamaño
+                let scaleFg = map(mid, 0, 255, 0.5, 2.0);
+                scale(scaleFg);
                 
-                // El volumen afecta la transparencia (opcional)
-                tint(255, map(vol, 0, 0.1, 150, 255)); 
+                // Los agudos afectan la rotación y el brillo (tint)
+                let rot = map(treble, 0, 255, 0, PI/4);
+                rotate(random(-rot/5, rot/5)); // Pequeño "jitter" con agudos
                 
-                image(imgFg, 0, 0);
+                tint(255, map(mid, 0, 255, 180, 255));
+                
+                // Ajustar tamaño base de la imagen de arriba
+                let fgW = 300;
+                image(imgFg, 0, 0, fgW, (imgFg.height * fgW) / imgFg.width);
                 pop();
-            } else if (imgFg) {
-                // Si hay imagen pero no micro, mostrarla estática en el centro
-                imageMode(CENTER);
-                image(imgFg, width / 2, height / 2);
             }
         }
 
         function windowResized() {
-            resizeCanvas(windowWidth, windowHeight - 80);
-            if (imgBg) imgBg.resize(width, 0);
-        }
-    </script>
-</body>
-</html>
-
-            // 2. Dibujar imagen reactiva si existe
-            if (imgFg && mic) {
-                let vol = mic.getLevel(); // Obtener volumen (0 a 1)
-                
-                // Calculamos la escala: base 1.0 + el volumen multiplicado por una intensidad
-                let escala = map(vol, 0, 0.5, 1.0, 2.5); 
-                
-                push();
-                imageMode(CENTER);
-                translate(width / 2, height / 2); // Centrar en pantalla
-                
-                // El volumen afecta el tamaño
-                scale(escala); 
-                
-                // El volumen afecta la transparencia (opcional)
-                tint(255, map(vol, 0, 0.1, 150, 255)); 
-                
-                image(imgFg, 0, 0);
-                pop();
-            } else if (imgFg) {
-                // Si hay imagen pero no micro, mostrarla estática en el centro
-                imageMode(CENTER);
-                image(imgFg, width / 2, height / 2);
-            }
-        }
-
-        function windowResized() {
-            resizeCanvas(windowWidth, windowHeight - 80);
-            if (imgBg) imgBg.resize(width, 0);
+            resizeCanvas(windowWidth, windowHeight);
         }
     </script>
 </body>
