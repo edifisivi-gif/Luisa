@@ -3,52 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio-Image Reactivity</title>
+    <title>Visualizador Doble Imagen</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
     <style>
-        body { margin: 0; display: flex; flex-direction: column; align-items: center; background: #111; color: white; font-family: sans-serif; }
-        #controls { padding: 20px; z-index: 10; background: rgba(0,0,0,0.8); width: 100%; text-align: center; }
-        canvas { border: 1px solid #444; }
-        .hint { font-size: 0.8em; color: #888; margin-top: 5px; }
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; background: #1a1a1a; color: white; font-family: sans-serif; overflow: hidden; }
+        #controls { padding: 15px; z-index: 10; background: rgba(0,0,0,0.8); width: 100%; display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; align-items: center; }
+        .upload-group { display: flex; flex-direction: column; align-items: center; font-size: 0.8em; }
+        canvas { border: none; }
+        button { cursor: pointer; padding: 10px; background: #27ae60; color: white; border: none; border-radius: 5px; font-weight: bold; }
+        button:hover { background: #2ecc71; }
     </style>
 </head>
 <body>
 
     <div id="controls">
-        <input type="file" id="fileInput" accept="image/*">
+        <div class="upload-group">
+            <span>1. Imagen de Fondo</span>
+            <input type="file" id="bgInput" accept="image/*">
+        </div>
+        <div class="upload-group">
+            <span>2. Imagen que Reacciona</span>
+            <input type="file" id="fgInput" accept="image/*">
+        </div>
         <button onclick="startAudio()">Activar Micrófono</button>
-        <div class="hint">Sube una imagen y grita (o sopla) para ver el efecto.</div>
     </div>
 
     <script>
-        let img;
+        let imgBg; // Imagen de fondo
+        let imgFg; // Imagen frontal (reacciona)
         let mic;
         let canvas;
 
         function setup() {
-            canvas = createCanvas(windowWidth, windowHeight - 100);
-            background(0);
+            canvas = createCanvas(windowWidth, windowHeight - 80);
             
-            // Configurar entrada de archivo
-            document.getElementById('fileInput').addEventListener('change', handleFile);
+            // Configurar entradas de archivos
+            document.getElementById('bgInput').addEventListener('change', (e) => handleFile(e, 'bg'));
+            document.getElementById('fgInput').addEventListener('change', (e) => handleFile(e, 'fg'));
         }
 
         function startAudio() {
-            userStartAudio(); // Necesario por políticas de navegadores
+            userStartAudio();
             mic = new p5.AudioIn();
             mic.start();
         }
 
-        function handleFile(e) {
+        function handleFile(e, type) {
             const file = e.target.files[0];
             if (file) {
                 const reader = new FileReader();
                 reader.onload = (event) => {
-                    img = loadImage(event.target.result, () => {
-                        // Ajustar imagen al canvas manteniendo proporción
-                        img.resize(width, 0);
-                        if (img.height > height) img.resize(0, height);
+                    loadImage(event.target.result, loadedImg => {
+                        if (type === 'bg') {
+                            imgBg = loadedImg;
+                            imgBg.resize(width, 0); // Ajustar fondo al ancho
+                        } else {
+                            imgFg = loadedImg;
+                            imgFg.resize(400, 0); // Tamaño inicial para la imagen que reacciona
+                        }
                     });
                 };
                 reader.readAsDataURL(file);
@@ -56,33 +69,43 @@
         }
 
         function draw() {
-            if (img && mic) {
-                background(0, 20); // Deja un rastro suave
+            background(20);
+
+            // 1. Dibujar fondo si existe
+            if (imgBg) {
+                imageMode(CORNER);
+                image(imgBg, 0, 0);
+            }
+
+            // 2. Dibujar imagen reactiva si existe
+            if (imgFg && mic) {
+                let vol = mic.getLevel(); // Obtener volumen (0 a 1)
                 
-                let vol = mic.getLevel(); // Valor entre 0 y 1
-                let threshold = 0.01; 
-
-                if (vol > threshold) {
-                    // "Glitch" basado en el volumen
-                    let sourceX = random(img.width);
-                    let sourceY = random(img.height);
-                    let w = map(vol, 0, 1, 10, 300);
-                    let h = map(vol, 0, 1, 5, 50);
-                    
-                    let destX = sourceX + random(-vol*500, vol*500);
-                    let destY = sourceY + random(-vol*500, vol*500);
-
-                    copy(img, sourceX, sourceY, w, h, destX, destY, w, h);
-                } else {
-                    image(img, (width - img.width)/2, (height - img.height)/2);
-                }
-            } else if (img) {
-                image(img, (width - img.width)/2, (height - img.height)/2);
+                // Calculamos la escala: base 1.0 + el volumen multiplicado por una intensidad
+                let escala = map(vol, 0, 0.5, 1.0, 2.5); 
+                
+                push();
+                imageMode(CENTER);
+                translate(width / 2, height / 2); // Centrar en pantalla
+                
+                // El volumen afecta el tamaño
+                scale(escala); 
+                
+                // El volumen afecta la transparencia (opcional)
+                tint(255, map(vol, 0, 0.1, 150, 255)); 
+                
+                image(imgFg, 0, 0);
+                pop();
+            } else if (imgFg) {
+                // Si hay imagen pero no micro, mostrarla estática en el centro
+                imageMode(CENTER);
+                image(imgFg, width / 2, height / 2);
             }
         }
 
         function windowResized() {
-            resizeCanvas(windowWidth, windowHeight - 100);
+            resizeCanvas(windowWidth, windowHeight - 80);
+            if (imgBg) imgBg.resize(width, 0);
         }
     </script>
 </body>
