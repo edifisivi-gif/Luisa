@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio-Image Reactivity</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+    <style>
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; background: #111; color: white; font-family: sans-serif; }
+        #controls { padding: 20px; z-index: 10; background: rgba(0,0,0,0.8); width: 100%; text-align: center; }
+        canvas { border: 1px solid #444; }
+        .hint { font-size: 0.8em; color: #888; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <input type="file" id="fileInput" accept="image/*">
+        <button onclick="startAudio()">Activar Micrófono</button>
+        <div class="hint">Sube una imagen y grita (o sopla) para ver el efecto.</div>
+    </div>
+
+    <script>
+        let img;
+        let mic;
+        let canvas;
+
+        function setup() {
+            canvas = createCanvas(windowWidth, windowHeight - 100);
+            background(0);
+            
+            // Configurar entrada de archivo
+            document.getElementById('fileInput').addEventListener('change', handleFile);
+        }
+
+        function startAudio() {
+            userStartAudio(); // Necesario por políticas de navegadores
+            mic = new p5.AudioIn();
+            mic.start();
+        }
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    img = loadImage(event.target.result, () => {
+                        // Ajustar imagen al canvas manteniendo proporción
+                        img.resize(width, 0);
+                        if (img.height > height) img.resize(0, height);
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function draw() {
+            if (img && mic) {
+                background(0, 20); // Deja un rastro suave
+                
+                let vol = mic.getLevel(); // Valor entre 0 y 1
+                let threshold = 0.01; 
+
+                if (vol > threshold) {
+                    // "Glitch" basado en el volumen
+                    let sourceX = random(img.width);
+                    let sourceY = random(img.height);
+                    let w = map(vol, 0, 1, 10, 300);
+                    let h = map(vol, 0, 1, 5, 50);
+                    
+                    let destX = sourceX + random(-vol*500, vol*500);
+                    let destY = sourceY + random(-vol*500, vol*500);
+
+                    copy(img, sourceX, sourceY, w, h, destX, destY, w, h);
+                } else {
+                    image(img, (width - img.width)/2, (height - img.height)/2);
+                }
+            } else if (img) {
+                image(img, (width - img.width)/2, (height - img.height)/2);
+            }
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight - 100);
+        }
+    </script>
+</body>
+</html>
